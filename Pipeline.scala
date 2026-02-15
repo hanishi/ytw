@@ -38,15 +38,20 @@ object Pipeline:
         opts.url
       )
 
+  private val ModelAliases: Map[String, String] = Map(
+    "large" -> "large-v3-turbo"
+  )
+
   def ensureModel(modelName: String, autoDownload: Boolean): Result[os.Path] =
+    val resolved = ModelAliases.getOrElse(modelName, modelName)
     val modelsDir = os.pwd / "models"
     os.makeDir.all(modelsDir)
-    val modelFile = modelsDir / s"ggml-$modelName.bin"
+    val modelFile = modelsDir / s"ggml-$resolved.bin"
 
     if os.exists(modelFile) then Right(modelFile)
     else if !autoDownload then Left(YtwError.ModelMissing(modelFile))
     else
-      val url = s"https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-$modelName.bin"
+      val url = s"https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-$resolved.bin"
       println(s"[ytw] model missing; downloading: $url")
 
       for

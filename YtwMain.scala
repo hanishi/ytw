@@ -42,7 +42,7 @@ case class Opts(
 
     opt[String]("model")
       .action((v, o) => o.copy(model = v))
-      .text("whisper.cpp model name; expects ./models/ggml-<model>.bin (auto-download on by default)")
+      .text("whisper.cpp model name (tiny|base|small|medium|large|large-v3|large-v3-turbo); 'large' maps to 'large-v3-turbo'")
 
     opt[String]("lang")
       .action((v, o) => o.copy(lang = Some(v)))
