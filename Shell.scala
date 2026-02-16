@@ -13,6 +13,14 @@ object Shell:
       case _: IOException =>
         Left(YtwError.CommandFailed(cmd.mkString(" "), -1))
 
+  def capture(cmd: Seq[String]): Result[String] =
+    try
+      val r = os.proc(cmd).call(check = false, stderr = os.Inherit)
+      Either.cond(r.exitCode == 0, r.out.text(), YtwError.CommandFailed(cmd.mkString(" "), r.exitCode))
+    catch
+      case _: IOException =>
+        Left(YtwError.CommandFailed(cmd.mkString(" "), -1))
+
   def cmdExists(name: String): Boolean =
     os.proc("bash", "-lc", s"command -v $name >/dev/null 2>&1")
       .call(check = false)

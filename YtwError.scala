@@ -8,6 +8,8 @@ enum YtwError:
   case ModelMissing(path: os.Path)
   case ModelDownloadFailed(path: os.Path)
   case NoDownloadTool
+  case FileNotFound(path: String)
+  case HlsFetchFailed(url: String)
 
   def message: String = this match
     case CommandNotFound(name) =>
@@ -15,7 +17,7 @@ enum YtwError:
     case CommandFailed(cmd, code) =>
       s"Command failed (exit=$code): $cmd"
     case InvalidUrl(url) =>
-      s"Could not extract YouTube video id from URL: $url"
+      s"Could not extract video id from URL: $url"
     case AudioNotFound(dir, fmt) =>
       s"yt-dlp finished but no .$fmt found in $dir"
     case ModelMissing(path) =>
@@ -24,6 +26,10 @@ enum YtwError:
       s"Model download failed or file too small: $path"
     case NoDownloadTool =>
       "Need curl or wget to auto-download models"
+    case FileNotFound(path) =>
+      s"File not found: $path"
+    case HlsFetchFailed(url) =>
+      s"Could not extract HLS stream URL from: $url"
 
 object YtwError:
   type Result[+A] = Either[YtwError, A]

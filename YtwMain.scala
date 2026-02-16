@@ -62,7 +62,7 @@ case class Opts(
       .action((_, o) => o.copy(autoDownloadModel = false))
       .text("Do not auto-download missing ggml model")
 
-    arg[String]("<youtube_url>").required().action((v, o) => o.copy(url = v))
+    arg[String]("<url_or_file>").required().action((v, o) => o.copy(url = v.replaceAll("\\s+", "")))
   }
 
   parser.parse(args.toSeq, Opts()) match
@@ -76,16 +76,25 @@ case class Opts(
       sys.exit(2)
 
 private def runPipeline(opts: Opts): Result[Unit] =
+  val local   = Pipeline.isLocalFile(opts.url)
+  val hotmart = Pipeline.isHotmart(opts.url)
   for
-    _          <- Shell.requireCmd("yt-dlp")
+    _          <- if local || hotmart then Right(()) else Shell.requireCmd("yt-dlp")
     _          <- Shell.requireCmd("ffmpeg")
     whisperBin <- Shell.findFirstCmd(Seq("whisper-cli", "whisper-cpp", "whisper"))
     _          =  println(s"[ytw] whisper_bin=$whisperBin")
-    vid        <- Pipeline.extractVideoId(opts.url)
+    vid        <- Pipeline.extractId(opts.url)
     outDir     =  { val d = os.pwd / opts.outRoot / vid; os.makeDir.all(d); d }
-    _          =  println(s"[ytw] video_id=$vid")
+    _          =  println(s"[ytw] id=$vid")
     _          =  println(s"[ytw] out=$outDir")
-    audio      <- Pipeline.downloadAudio(opts, outDir)
+    audio      <- if local then Pipeline.extractAudioFromFile(os.Path(opts.url, os.pwd), opts.audioFormat, outDir)
+                   else if hotmart then
+                     for
+                       hlsUrl <- Pipeline.fetchHlsUrl(opts.url)
+                       _      =  println(s"[ytw] hls=$hlsUrl")
+                       path   <- Pipeline.downloadHlsAudio(hlsUrl, opts.audioFormat, vid, outDir, opts.url)
+                     yield path
+                   else Pipeline.downloadAudio(opts, outDir)
     _          =  println(s"[ytw] audio=${audio.last}")
     modelFile  <- Pipeline.ensureModel(opts.model, opts.autoDownloadModel)
     _          <- Pipeline.transcribe(whisperBin, modelFile, opts, outDir, audio)

@@ -1,14 +1,62 @@
 package ytw
 
 import YtwError.Result
+import java.security.MessageDigest
 
 object Pipeline:
 
-  private val IdRe = raw"""(?:v=|youtu\.be/)([A-Za-z0-9_-]{11})""".r
+  private val IdRe      = raw"""(?:v=|youtu\.be/)([A-Za-z0-9_-]{11})""".r
+  private val HotmartRe = raw"""player\.hotmart\.com/embed/([^?/]+)""".r
+  private val M3u8Re    = raw""""(https?://[^"]+\.m3u8[^"]*)"""".r
 
-  def extractVideoId(url: String): Result[String] =
-    IdRe.findFirstMatchIn(url).map(_.group(1))
-      .toRight(YtwError.InvalidUrl(url))
+  def isLocalFile(input: String): Boolean =
+    os.exists(os.Path(input, os.pwd))
+
+  def isYouTube(url: String): Boolean =
+    url.contains("youtube.com") || url.contains("youtu.be")
+
+  def isHotmart(url: String): Boolean =
+    url.contains("player.hotmart.com/embed/")
+
+  def extractId(input: String): Result[String] =
+    if isLocalFile(input) then
+      Right(os.Path(input, os.pwd).baseName)
+    else if isHotmart(input) then
+      HotmartRe.findFirstMatchIn(input).map(_.group(1))
+        .toRight(YtwError.InvalidUrl(input))
+    else if isYouTube(input) then
+      IdRe.findFirstMatchIn(input).map(_.group(1))
+        .toRight(YtwError.InvalidUrl(input))
+    else
+      val digest = MessageDigest.getInstance("SHA-256").digest(input.getBytes("UTF-8"))
+      Right(digest.map("%02x".format(_)).mkString.take(11))
+
+  def extractAudioFromFile(filePath: os.Path, audioFormat: String, outDir: os.Path): Result[os.Path] =
+    if !os.exists(filePath) then Left(YtwError.FileNotFound(filePath.toString))
+    else
+      val outFile = outDir / s"${filePath.baseName}.$audioFormat"
+      val cmd = List("ffmpeg", "-i", filePath.toString, "-vn", "-y", outFile.toString)
+      Shell.run(cmd).map(_ => outFile)
+
+  private val UnicodeEscRe = raw"""\\u([0-9a-fA-F]{4})""".r
+  private def unescapeJson(s: String): String =
+    UnicodeEscRe.replaceAllIn(s, m => Integer.parseInt(m.group(1), 16).toChar.toString)
+
+  def fetchHlsUrl(pageUrl: String): Result[String] =
+    Shell.capture(Seq("curl", "-s", "-L", pageUrl)).flatMap { html =>
+      M3u8Re.findFirstMatchIn(html).map(m => unescapeJson(m.group(1)))
+        .toRight(YtwError.HlsFetchFailed(pageUrl))
+    }
+
+  def downloadHlsAudio(hlsUrl: String, audioFormat: String, id: String, outDir: os.Path, referer: String): Result[os.Path] =
+    val outFile = outDir / s"$id.$audioFormat"
+    val cmd = List(
+      "ffmpeg",
+      "-headers", s"Referer: $referer\r\n",
+      "-i", hlsUrl,
+      "-vn", "-y", outFile.toString
+    )
+    Shell.run(cmd).map(_ => outFile)
 
   def downloadAudio(opts: Opts, outDir: os.Path): Result[os.Path] =
     val outtmpl = (outDir / "%(id)s.%(ext)s").toString
@@ -33,10 +81,10 @@ object Pipeline:
         "--no-playlist",
         "-x",
         "--audio-format", opts.audioFormat,
-        "-o", outtmpl,
-        "--extractor-args", s"youtube:player_client=$client",
-        opts.url
-      )
+        "-o", outtmpl
+      ) ++
+      (if isYouTube(opts.url) then List("--extractor-args", s"youtube:player_client=$client") else Nil) ++
+      List(opts.url)
 
   private val ModelAliases: Map[String, String] = Map(
     "large" -> "large-v3-turbo"
