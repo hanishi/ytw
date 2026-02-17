@@ -31,12 +31,17 @@ object Pipeline:
       val digest = MessageDigest.getInstance("SHA-256").digest(input.getBytes("UTF-8"))
       Right(digest.map("%02x".format(_)).mkString.take(11))
 
-  def extractAudioFromFile(filePath: os.Path, audioFormat: String, outDir: os.Path): Result[os.Path] =
+  def extractAudioFromFile(filePath: os.Path, audioFormat: String, outDir: os.Path, keepVideo: Boolean = false): Result[os.Path] =
     if !os.exists(filePath) then Left(YtwError.FileNotFound(filePath.toString))
     else
       val outFile = outDir / s"${filePath.baseName}.$audioFormat"
       val cmd = List("ffmpeg", "-i", filePath.toString, "-vn", "-y", outFile.toString)
-      Shell.run(cmd).map(_ => outFile)
+      Shell.run(cmd).map { _ =>
+        if keepVideo then
+          val dest = outDir / filePath.last
+          if dest != filePath && !os.exists(dest) then os.copy(filePath, dest)
+        outFile
+      }
 
   private val UnicodeEscRe = raw"""\\u([0-9a-fA-F]{4})""".r
   private def unescapeJson(s: String): String =
@@ -63,11 +68,24 @@ object Pipeline:
     val cmd = downloadCommand(opts, outtmpl)
 
     Shell.run(cmd).flatMap { _ =>
-      os.list(outDir)
-        .filter(_.ext == opts.audioFormat)
-        .sortBy(p => os.stat(p).mtime.toMillis)
-        .lastOption
-        .toRight(YtwError.AudioNotFound(outDir, opts.audioFormat))
+      if opts.video then
+        val videoExts = Set("mp4", "mkv", "webm", "avi", "mov", "flv")
+        os.list(outDir)
+          .filter(p => videoExts.contains(p.ext))
+          .sortBy(p => os.stat(p).mtime.toMillis)
+          .lastOption
+          .toRight(YtwError.AudioNotFound(outDir, "video"))
+          .flatMap { videoFile =>
+            val audioFile = outDir / s"${videoFile.baseName}.${opts.audioFormat}"
+            val ffmpegCmd = List("ffmpeg", "-i", videoFile.toString, "-vn", "-y", audioFile.toString)
+            Shell.run(ffmpegCmd).map(_ => audioFile)
+          }
+      else
+        os.list(outDir)
+          .filter(_.ext == opts.audioFormat)
+          .sortBy(p => os.stat(p).mtime.toMillis)
+          .lastOption
+          .toRight(YtwError.AudioNotFound(outDir, opts.audioFormat))
     }
 
   private def downloadCommand(opts: Opts, outtmpl: String): List[String] =
@@ -77,12 +95,9 @@ object Pipeline:
 
     List("yt-dlp") ++
       opts.cookiesFromBrowser.toList.flatMap(c => List("--cookies-from-browser", c)) ++
-      List(
-        "--no-playlist",
-        "-x",
-        "--audio-format", opts.audioFormat,
-        "-o", outtmpl
-      ) ++
+      List("--no-playlist") ++
+      (if opts.video then Nil else List("-x", "--audio-format", opts.audioFormat)) ++
+      List("-o", outtmpl) ++
       (if isYouTube(opts.url) then List("--extractor-args", s"youtube:player_client=$client") else Nil) ++
       List(opts.url)
 

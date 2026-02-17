@@ -19,7 +19,8 @@ case class Opts(
   srt: Boolean = true,
   vtt: Boolean = true,
   txt: Boolean = true,
-  autoDownloadModel: Boolean = true
+  autoDownloadModel: Boolean = true,
+  video: Boolean = false
 )
 
 @main def ytwMain(args: String*): Unit =
@@ -62,6 +63,10 @@ case class Opts(
       .action((_, o) => o.copy(autoDownloadModel = false))
       .text("Do not auto-download missing ggml model")
 
+    opt[Unit]("video")
+      .action((_, o) => o.copy(video = true))
+      .text("Keep the original video file alongside transcription output")
+
     arg[String]("<url_or_file>").required().action((v, o) => o.copy(url = v.replaceAll("\\s+", "")))
   }
 
@@ -87,7 +92,7 @@ private def runPipeline(opts: Opts): Result[Unit] =
     outDir     =  { val d = os.pwd / opts.outRoot / vid; os.makeDir.all(d); d }
     _          =  println(s"[ytw] id=$vid")
     _          =  println(s"[ytw] out=$outDir")
-    audio      <- if local then Pipeline.extractAudioFromFile(os.Path(opts.url, os.pwd), opts.audioFormat, outDir)
+    audio      <- if local then Pipeline.extractAudioFromFile(os.Path(opts.url, os.pwd), opts.audioFormat, outDir, opts.video)
                    else if hotmart then
                      for
                        hlsUrl <- Pipeline.fetchHlsUrl(opts.url)

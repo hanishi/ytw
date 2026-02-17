@@ -46,6 +46,12 @@ scala-cli run . -- "https://www.youtube.com/watch?v=VIDEO_ID" --task translate
 # Transcribe a Hotmart embedded video (no yt-dlp needed, requires curl)
 scala-cli run . -- "https://player.hotmart.com/embed/MEDIA_CODE"
 
+# Keep the video file alongside transcription output
+scala-cli run . -- "https://www.youtube.com/watch?v=VIDEO_ID" --video
+
+# Keep the original video when transcribing a local file
+scala-cli run . -- /path/to/lecture.mp4 --video
+
 # Use browser cookies (for age-restricted / private videos)
 scala-cli run . -- "https://www.youtube.com/watch?v=VIDEO_ID" --cookies-from-browser chrome
 ```
@@ -65,6 +71,7 @@ scala-cli run . -- "https://www.youtube.com/watch?v=VIDEO_ID" --cookies-from-bro
 | `--no-srt` | — | Disable SRT output |
 | `--no-vtt` | — | Disable VTT output |
 | `--no-txt` | — | Disable plain text output |
+| `--video` | — | Keep the original video file in the output directory |
 | `--no-auto-model-download` | — | Don't auto-download missing models |
 
 ## Output
